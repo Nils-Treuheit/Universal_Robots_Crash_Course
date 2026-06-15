@@ -1,0 +1,109 @@
+def calculate_point_to_move_towards(feature, direction, position_distance):
+    local posDir=[direction[0], direction[1], direction[2]]
+    if (norm(posDir) < 1e-6):
+      return get_target_waypoint()
+    end
+    local direction_vector_normalized=normalize(posDir)
+    local displacement_pose=p[direction_vector_normalized[0] * position_distance,direction_vector_normalized[1] * position_distance,direction_vector_normalized[2] * position_distance,0,0,0]
+    local wanted_displacement_in_base_frame=pose_sub(pose_trans(feature, displacement_pose), feature)
+    return pose_add(get_target_waypoint(), wanted_displacement_in_base_frame)
+  end
+    # Move towards the gound 
+    # - if stopped by contact to cube => grab it
+    # - if close to ground => stop without grip  
+    $ 80 "MoveL"
+    $ 81 "Direction: Base Z-"
+    global move_thread_flag_81=0
+    thread move_thread_81():
+      enter_critical
+      move_thread_flag_81 = 1
+      local towardsPos=calculate_point_to_move_towards(p[0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,-1.0], 0.4)
+      movel(towardsPos, a=0.5, v=0.066)
+      move_thread_flag_81 = 2
+      exit_critical
+    end
+    move_thread_flag_81 = 0
+    move_thread_han_81 = run move_thread_81()
+    while (True):
+      local targetTcpDirection=get_target_tcp_speed()
+      local stepsToRetract=tool_contact(direction=targetTcpDirection)
+      if (stepsToRetract > 0):
+        kill move_thread_han_81
+        stopl(3.0)
+        local backTrackMovement=get_actual_joint_positions_history(stepsToRetract)
+        local contactPose=get_forward_kin(backTrackMovement)
+        local posDir=[targetTcpDirection[0],targetTcpDirection[1],targetTcpDirection[2]]
+        local retractTo=contactPose
+        if (norm(posDir) > 1e-6):
+          local normalizedPosDir=normalize(posDir)
+          local additionalRetraction=p[normalizedPosDir[0] * 0.005, normalizedPosDir[1] * 0.005, normalizedPosDir[2] * 0.005, 0, 0, 0]
+          retractTo = pose_sub(contactPose, additionalRetraction)
+        end
+        movel(retractTo, a=3.0, v=0.1)
+        $ 83 "Until (tool_contact_detection)"
+        break
+      end
+      sleep(1.0E-10)
+      if (move_thread_flag_81 > 1):
+        join move_thread_han_81
+        $ 82 "Until (distance)"
+        break
+      end
+      sync()
+    end
+    # begin: URCap Program Node
+    #   Source: OnRobot, 6.3.1, OnRobot A/S
+    #   Type: 2FG Release
+    $ 84 "2FG Release (54)"
+    on_return = twofg_release(width=54.0, speed=100, external_release=True, tool_index=0 )
+    twofg_payload_set(mass = 0.0, tool_index = 0, use_guard = False)
+    # end: URCap Program Node
+    $ 85 "var_1≔get_actual_tcp_pose()[2]"
+    global var_1= get_actual_tcp_pose ()[2]
+    $ 86 "Popup"
+    popup(str_cat("",var_1), "Message", False, False, blocking=True)
+    $ 87 "Wait norm(get_target_joint_speeds())<0.0001"
+    while (not(norm( get_target_joint_speeds ())<0.0001)):
+      sync()
+    end
+    $ 88 "If get_actual_tcp_pose()[2]<0.02"
+    if ( get_actual_tcp_pose ()[2]<0.02):
+      $ 89 "grabbedCube≔ False "
+      global grabbedCube=  False  
+    else:
+      $ 90 "Else" "noBreak"
+      $ 91 "MoveL"
+      $ 92 "Direction: Base Z-"
+      global move_thread_flag_92=0
+      thread move_thread_92():
+        enter_critical
+        move_thread_flag_92 = 1
+        local towardsPos=calculate_point_to_move_towards(p[0.0,0.0,0.0,0.0,0.0,0.0], [0.0,0.0,-1.0], 0.027)
+        movel(towardsPos, a=1.2, v=0.25)
+        move_thread_flag_92 = 2
+        exit_critical
+      end
+      move_thread_flag_92 = 0
+      move_thread_han_92 = run move_thread_92()
+      while (True):
+        sleep(1.0E-10)
+        if (move_thread_flag_92 > 1):
+          join move_thread_han_92
+          $ 93 "Until (distance)"
+          break
+        end
+        sync()
+      end
+      # begin: URCap Program Node
+      #   Source: OnRobot, 6.3.1, OnRobot A/S
+      #   Type: 2FG Grip
+      $ 94 "2FG Grip (49)"
+      on_return = twofg_grip(width=49.0, force=50, speed=42, external_grip=True, stop_if_no_force=True, tool_index=0)
+      twofg_payload_set(mass = 0.0, tool_index = 0, use_guard = True)
+      # end: URCap Program Node
+      $ 95 "grabbedCube≔ True "
+      global grabbedCube=  True  
+    end
+    $ 96 "MoveL"
+    $ 97 "top_pick" "breakAfter"
+    movel(top_pick_p, a=1.2, v=0.25)

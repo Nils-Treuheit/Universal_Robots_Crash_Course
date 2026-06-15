@@ -1,0 +1,48 @@
+def rhythmic_wiggle_by_ticks():
+  # --- Configuration ---
+  # Define the speed of the wiggle in m/s (e.g., 0.1 m/s)
+  local speed_ms = 0.1
+  # How many conveyor ticks to wait before changing direction
+  local ticks_per_beat = 100 
+  
+  # --- Velocity Vectors ---
+  # speedl expects [x, y, z, rx, ry, rz]
+  local move_plus_x  = [ speed_ms, 0.0, 0.0, 0.0, 0.0, 0.0]
+  local move_minus_x = [-speed_ms, 0.0, 0.0, 0.0, 0.0, 0.0]
+  
+  # --- State Variables ---
+  local direction_toggle = true
+  local next_tick_target = 0
+  local current_ticks = 0
+
+  # Initialize the tick target based on current encoder count
+  # (Assumes conveyor tracking is configured and active)
+  next_tick_target = conveyor_tick() + ticks_per_beat
+
+  # --- Main Loop ---
+  while (True):
+    # Get the latest encoder tick count
+    current_ticks = conveyor_tick()
+
+    # Rhythmic Intervention: Check if the "beat" has hit
+    if (current_ticks >= next_tick_target):
+      # Toggle the direction
+      direction_toggle = not direction_toggle
+      
+      # Set the next target beat
+      next_tick_target = current_ticks + ticks_per_beat
+    end
+
+    # Apply the velocity based on the rhythm
+    if (direction_toggle):
+      # Move in +X. acceleration = 0.5 m/s²
+      speedl(move_plus_x, a=0.5, t=0.008)
+    else:
+      # Move in -X. acceleration = 0.5 m/s²
+      speedl(move_minus_x, a=0.5, t=0.008)
+    end
+
+    # Brief sync with the controller task cycle (8ms for CB3, 2ms for e-Series)
+    sync()
+  end
+end

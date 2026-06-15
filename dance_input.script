@@ -1,0 +1,81 @@
+global AP = pose_add(start_pos_p, p[0,0.2,0,0,0,0])
+global BP = pose_add(start_pos_p, p[0,-0.2,0,0,0,0])
+global ctrl_frequency=500.0
+global bpm=120.0
+global amplitude=0.25
+global cycle_duration=ctrl_frequency / bpm * 60.0
+global time = cycle_duration / 60 
+global counter=0
+global beat_counter=0
+global takt_counter=0
+global takt_old=0
+global pulse=True
+global curent_takt=9
+global pi=3.14159265359
+
+thread Thread_1():
+  while (True):
+    global offset=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    global i=0
+    global zeiger_beat=0
+    global zeiger_takt=0
+
+    path_offset_enable()
+    global alpha=0.001
+    path_offset_set_alpha_filter(alpha)
+    path_offset_set_max_offset(1, 4)
+    while (True):
+      zeiger_beat = sin((i / cycle_duration) * 2.0 * pi)
+      zeiger_halber_beat = sin((i / cycle_duration/2) * 2.0 * pi)
+
+      zeiger_takt = sin((i / cycle_duration/4) * 2.0 * pi)
+      zeiger_halber_takt = sin((i / cycle_duration/8) * 2.0 * pi)
+      zeiger_viertel_takt = sin((i / cycle_duration/16) * 2.0 * pi)
+
+      offset[2]= zeiger_beat * amplitude *2  # vor zurück
+      offset[3]= zeiger_viertel_takt * (amplitude*4) #hoch runter schauen
+      offset[4]= zeiger_halber_beat * (amplitude *6) #sway left right
+      offset[5]= zeiger_takt * (amplitude*6) #Tilt 
+
+      counter=i / cycle_duration
+      beat_counter=floor(counter)
+      takt_counter=floor(i / cycle_duration/2)
+      if (takt_counter!=takt_old):
+        takt_old=takt_counter
+        pulse=True
+      else:
+        pulse=False          
+      end
+
+      path_offset_set(offset, 2)
+      global i=i+1
+      sync()
+    end
+  end
+end
+
+threadId_Thread_1 = run Thread_1()
+
+while (True):
+  if (pulse):
+    curent_takt=curent_takt+1
+    if (curent_takt==17):
+      curent_takt=9
+    end
+  end
+
+  if (curent_takt==9): movej(Waypoint_3_q,1.2,0.25,time,0) end
+  if (curent_takt==10): movej(Waypoint_4_q,1.2,0.25,time,0) end
+  if (curent_takt==11): movej(Waypoint_5_q,1.2,0.25,time,0) end
+  if (curent_takt==12): movej(Waypoint_6_q,1.2,0.25,time,0) end
+
+  if (curent_takt==13): movej(Waypoint_3_q,1.2,0.25,time,0) end
+  if (curent_takt==14): movej(Waypoint_4_q,1.2,0.25,time,0) end
+  if (curent_takt==15): movej(Waypoint_5_q,1.2,0.25,time,0) end
+  if (curent_takt==16): movej(Waypoint_6_q,1.2,0.25,time,0) end
+
+  sync()
+end
+
+
+

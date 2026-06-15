@@ -1,0 +1,21 @@
+# SubProgram: Pick Cube 
+def Pick():
+  # move to top of pick cube stack and pinch gripper
+  apply_moveJ_zAxis_aligned(top_pick_p)
+  pinch_gripper()
+  # now user knows he has activated pick routine
+  sleep(0.5) 
+  # Move towards the ground 
+  # - if stopped by contact to cube => goal: grab it
+  # - if close to ground => goal: stop without grip  
+  local foundCube = move_towards_ground_until_contact(0.5,5,0.066,0.011,0.05)
+  # release the Gripper
+  release_gripper() 
+  # if cube is found move down with opened gripper to grab the cube
+  if (foundCube==True):
+    movel(pose_sub(get_actual_tcp_pose(),p[0.,0.,0.027,0.,0.,0.]),a=0.2,v=0.033)
+    grab_gripper()
+  end
+  # move back up to the top of the cube stack
+  movel(top_pick_p, a=1.2, v=0.25)
+end

@@ -1,0 +1,12 @@
+# SubProgram: Take Cube 
+def TakeCube():
+  # move to the interaction position
+  move_to_interact()
+  # release the gripper to allow to take a cube when force is applied
+  release_gripper()
+  wait_on_tcp_force(18)
+  # grab the cube after human operator pushed it against the gripper 
+  grab_gripper()
+  # move to the current placement position 
+  apply_moveJ_zAxis_aligned(top_place_p)
+end

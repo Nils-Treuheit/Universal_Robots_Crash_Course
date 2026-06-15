@@ -1,0 +1,64 @@
+global bottom_left_p=p[.240000000000, -.200000000000, .422000000000, 1.209199576156, 1.209199576156, 1.209199576156]
+global bottom_left_q=[-0.3817377619679725, -1.1158542265441032, -2.0833218774838747, -3.0840092035372866, -1.9525340887628717, -6.283185307703944]
+global bottom_right_p=p[.240000000000, .000000000000, .422000000000, 1.209199576156, 1.209199576156, 1.209199576156]
+global bottom_right_q=[1.251416112668986, -0.6606677408384911, -2.227319707135977, -3.3951978586179408, -0.3193802141259141, -6.283185307865866]
+global top_right_p=p[.240000000000, -.000000000000, .644000000000, 1.209199576156, 1.209199576156, 1.209199576156]
+global top_right_q=[1.2514161137018869, -0.9085209166368067, -1.5549247962268682, -3.819739593728734, -0.31938021309301234, -6.2831853078658675]
+global top_left_p=p[.240000000000, -.200000000000, .644000000000, 1.209199576156, 1.209199576156, 1.209199576156]
+global top_left_q=[-0.38173776174564455, -1.2273215253839016, -1.4345172234805403, -3.6213465587008233, -1.9525340885405438, -6.2831853077039455]
+global next_point_p=bottom_right_p
+global next_point_q=bottom_right_q
+#see where the points are
+def block_until_still():
+  # make sure robot is not moving anymore
+  while (norm(get_target_joint_speeds())>=0.0001):
+    sync()
+  end
+end
+movej(get_inverse_kin(bottom_left_p, qnear=bottom_left_q), a=0.7, v=0.5, r=0.1)
+block_until_still()
+sleep(1.0)
+movej(get_inverse_kin(bottom_right_p, qnear=bottom_right_q), a=0.7, v=0.5, r=0.1)
+block_until_still()
+sleep(1.0)
+movej(get_inverse_kin(top_left_p, qnear=top_left_q), a=0.7, v=0.5, r=0.1)
+block_until_still()
+sleep(1.0)
+movej(get_inverse_kin(top_right_p, qnear=top_right_q), a=0.7, v=0.5, r=0.1)
+block_until_still()
+sleep(1.0)
+global stop_freq = request_integer_from_primary_client("How many ms before stop? (e.g. 500)")
+global stop_freq = stop_freq/1000
+global stopRobot=False
+thread Moving_Thread():
+  while (True):
+    movej(get_inverse_kin(next_point_p, qnear=next_point_q), a=0.7, v=0.5, r=0.1)
+    if (next_point_p == bottom_right_p):
+        next_point_p=top_right_p
+        next_point_q=top_right_q
+    else:
+      if (next_point_p == top_right_p):
+        next_point_p=top_left_p
+        next_point_q=top_left_q
+      else:
+        if (next_point_p == top_left_p):
+          next_point_p=bottom_left_p
+          next_point_q=bottom_left_q
+        else:
+          next_point_p=bottom_right_p
+          next_point_q=bottom_right_q
+        end
+      end
+    end
+  end
+end
+global MovingThreadHandle = run Moving_Thread()
+while (True):
+  sleep(stop_freq)
+  kill MovingThreadHandle
+  global stopRobot=True 
+  stopj(1.0)
+  #sleep(3.0)
+  global MovingThreadHandle=run Moving_Thread()
+  global stopRobot=False 
+end

@@ -1,0 +1,22 @@
+global mid_posBounce_p = p[.717271877797, -.155702535376, .768482829116, -1.209199573417, 1.209199590966, -1.209199547810]
+global mid_posBounce_q = [0.03969980232416761, -1.3942801145245882, -1.9850619617570473, 0.24177172654742574, 1.5304211952191826, 0.00792465535300091]
+
+#global mid_posBounce_p = p[0.19, 0.01, 0.58, 2.69, 1.63, 0.0]
+
+global WP_Left   = pose_add(mid_posBounce_p, p[0.0, -0.25, 0, 0, 0, 0])
+global WP_Right  = pose_add(mid_posBounce_p, p[0.0, 0.25, 0, 0, 0, 0])
+global WP_Bottom = pose_add(mid_posBounce_p, p[0, 0, -0.20, 0, 0, 0])
+global WP_Top    = pose_add(mid_posBounce_p, p[0, 0, 0.20, 0, 0, 0])
+
+movej(WP_Left, a=0.25, v=0.4, r=0.05)
+stopj(1)
+sleep(1)
+movej(WP_Top, a=0.25, v=0.4, r=0.05)
+stopj(1)
+sleep(1)
+movej(WP_Right, a=0.25, v=0.4, r=0.05)
+stopj(1)
+sleep(1)
+movej(WP_Bottom, a=0.25, v=0.4, r=0.05)
+stopj(1)
+sleep(1)

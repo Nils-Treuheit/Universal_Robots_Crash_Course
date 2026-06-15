@@ -1,0 +1,71 @@
+# ================ Functions ================
+###
+# Special MoveJ routine that moves optimal to a position and aligns the gripper with the Z-Axis
+# @param pose pose - target waypoint defined as p[x,y,z,rx,ry,rz]
+###
+def apply_moveJ_zAxis_aligned(pose):
+  local target_p = rot_gripper_reset(pose)
+  local current_q = get_actual_joint_positions()
+  if get_inverse_kin_has_solution(target_p,current_q):
+      local target_q = get_inverse_kin(target_p,current_q)
+      movej(target_q, a=1.4, v=1)
+  else:
+      movej(target_p, a=1.25, v=0.5)
+  end
+end
+global cubeTable_gripperRot = rpy2rotvec([d2r(180.), d2r(0.), d2r(-90.)])
+###
+# Routine to reset the position at a given point so the gripper is aligned with the Z-Axis
+# @param pose pose - target waypoint defined as p[x,y,z,rx,ry,rz]
+###
+def rot_gripper_reset(pose):
+  return p[pose[0], pose[1], pose[2], cubeTable_gripperRot[0], cubeTable_gripperRot[1], cubeTable_gripperRot[2]]
+end
+def save_cube_position():
+  # 1. Pop up a message instructing the operator. 
+  # This pauses the robot program and waits for them to hit "Continue".
+  # (blocking=True ensures the script waits right here)
+  popup("Please use Freedrive to move the robot TCP to the left-most cube, then press Continue.", title="Setup Mode", warning=False, error=False, blocking=True)
+  # 2. Once they hit continue, instantly grab the current position of the tool (TCP)
+  global init_pos_p = rot_gripper_reset(get_actual_tcp_pose())
+  global init_pos_q = get_inverse_kin(init_pos_p, get_actual_joint_positions())
+end
+def block_until_still():
+  # make sure robot is not moving anymore
+  while (norm(get_target_joint_speeds())>=0.0001):
+    sync()
+  end
+end
+# ==========================================
+
+def init():
+  # Initialisation Routine
+  # Next 3 lines in URP before start 
+  # -> move to example position to make left most cube stack positioning easier
+  #global init_pos_p=p[0.364, -0.501, 0.410, 2.221302571162, -2.221550604714, -.000039715444]
+  #global init_pos_q=[-0.6580644714395518, -1.4293721756783437, -1.9140742516810159, -1.3648597519923449, 1.5748203531136582, -0.6506067434766116]
+  #movej(get_inverse_kin(init_pos_p, init_pos_q), a=1.4, v=1.0)
+  global interact_pos1_p=p[.370, -.350, .620, -1.209196644714, 1.209204141954, -1.209204141954]
+  global interact_pos2_p=p[.558, -.199, .618, -1.209199576156, 1.209199576156, -1.209199576156]
+  global grabbedCube=False
+  save_cube_position()
+  global cube_count = request_integer_from_primary_client("How many cubes are there? (e.g. 5)")
+  global cube_dist = request_integer_from_primary_client("How far apart are the cubes in mm? (e.g. 75)")
+  global cube_dist = cube_dist / 1000
+  apply_moveJ_zAxis_aligned(p[init_pos_p[0],init_pos_p[1],init_pos_p[2]+0.01,init_pos_p[3],init_pos_p[4],init_pos_p[5]])
+  apply_moveJ_zAxis_aligned(init_pos_p)
+  global current_pos=init_pos_p
+  global top_pick_p=current_pos
+  global top_place_p=current_pos
+  block_until_still()
+end
+# global init_pos_p=p[.364000002273, -.500985651069, .410451243365, 2.221302571162, -2.221550604714, -.000039715444]
+# global init_pos_q=[-0.6580644714395518, -1.4293721756783437, -1.9140742516810159, -1.3648597519923449, 1.5748203531136582, -0.6506067434766116]
+#global interact_pos1_p=p[.370000000000, -.350000000000, .620000000000, -1.209196644714, 1.209204141954, -1.209204141954]
+# global interact_pos1_q=[-0.7769460654270981, -1.2639353991452875, -2.3582413526133177, 0.4863473270681769, 2.3460585458884857, 0.007929402790308232]
+#global interact_pos2_p=p[.558160002163, -.199224572559, .617893556873, -1.209199576156, 1.209199576156, -1.209199576156]
+# global interact_pos2_q=[-0.08406447782361681, -1.2441301162214486, -2.374792151096123, 0.48159567398278647, 1.6531729275984621, 0.007660369557909134]
+# global top_pick_p=p[.364000002273, -.500985651069, .410451243365, 2.221302571162, -2.221550604714, -.000039715444]
+# global top_pick_q=[-0.6580644714395518, -1.4293721756783437, -1.9140742516810159, -1.3648597519923449, 1.5748203531136582, -0.6506067434766116]
+# global top_place_p=p[.364000002273, -.500985651069, .410451243365, 2.221302571162, -2.221550604714, -.000039715444]
+# global top_place_q=[-0.6580644714395518, -1.4293721756783437, -1.9140742516810159, -1.3648597519923449, 1.5748203531136582, -0.6506067434766116]

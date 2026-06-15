@@ -1,0 +1,577 @@
+def interactiveCubes():
+  # Global System and Variable Initializations
+  global _hidden_verificationVariable = 0
+  global Plane_1 = p[0.5426675768199742,-0.17344666458911148,0.23850882595906162,1.2091386625646208,1.2094845130106349,1.2091509435637002]
+  global Plane_2 = p[0.542416305729874,-0.0860977766790559,0.30197504235656236,1.2092934756747655,-1.209023623044286,-1.2096182587445312]
+  global on_return = 0
+  global twofg_Width_ext = 0
+  global twofg_Width_int = 0
+  global twofg_Force = 0
+  global twofg_Busy = False
+  global twofg_Grip_detected = False
+
+  # Configure Hardware and Digital I/O
+  set_tool_communication(True, 1000000, 2, 1, 1.5, 3.5)
+  set_tool_output_mode(0)
+  set_tool_digital_output_mode(0, 1)
+  set_tool_digital_output_mode(1, 1)
+  set_tool_voltage(24)
+  
+  # Map Analog Domains
+  set_standard_analog_input_domain(0, 1)
+  set_standard_analog_input_domain(1, 1)
+  set_tool_analog_input_domain(0, 1)
+  set_tool_analog_input_domain(1, 1)
+  set_analog_outputdomain(0, 0)
+  set_analog_outputdomain(1, 0)
+  
+  # Robot Kinematics / Safety Limits
+  set_input_actions_to_default()
+  set_gravity([0.0, 0.0, 9.82])
+  set_tcp(p[0.0,0.0,0.14615,0.0,0.0,0.0])
+  set_safety_mode_transition_hardness(1)
+  set_target_payload(2.0, [-0.013, -0.032, 0.042], [0.004887, 0.004887, 0.004887, 0.0, 0.0, 0.0])
+
+  # RPC Server Instantiations
+  myurRPC = rpc_factory("xmlrpc", "http://127.0.0.1:40474")
+  on_conn_xmlrpc = rpc_factory("xmlrpc", "http://localhost:41414")
+  on_tool_xmlrpc = on_conn_xmlrpc 
+  on_RPC = rpc_factory("xmlrpc", "http://127.0.0.1:31416")
+  
+  # Communication Registers and Protocol Flags
+  ON_CONN_SHIFT_INT = 24
+  ON_TOOL_SHIFT_BOOL_ARR = [64, 68, 68]
+  ON_TOOL_SHIFT_INT_ARR = [25, 29, 29]
+  ON_TOOL_SHIFT_FLOAT_ARR = [24, 26, 26]
+  ON_REG_USE_TOOL = False
+  ON_DI_PRIMARY = 1
+  ON_DI_SECONDARY = 2
+  ON_DI_DUAL = 3
+  
+  on_devices = 1
+  ON_DEBUG_LOG = False
+  on_isMetric = True
+  on_toolConnector = True
+  on_ioqc = False
+  twofg_index = 0
+
+  # Templates
+  ON_ZEROFRAME = p[0.0,0.0,0.0,0.0,0.0,0.0]
+  ON_ZERO6D = [0.0,0.0,0.0,0.0,0.0,0.0]
+  ON_INIT_TIMEOUT = 2000
+  on_transition_time = 0.15
+  
+  on_RTDE_error = 0
+  on_RTDE_tool_error = 0
+  on_dataProcess_thrd = 0
+  
+  # OnRobot 2FG Setup
+  twofg_Width_ext_arr = [0,0,0]
+  twofg_Width_int_arr = [0,0,0]
+  twofg_Force_arr = [0,0,0]
+  twofg_device_id_arr = [0,0,0]
+  twofg_product_code_arr = [0,0,0]
+  twofg_Status_arr = [0,0,0]
+  twofg_Grip_detected_arr = [False,False,False]
+  twofg_Busy_arr = [False,False,False]
+  twofg_Grip_guard_arr = [False,False,False]
+
+  # Functional State Getters
+  def get_twofg_Busy(): return twofg_Busy end 
+  def get_twofg_Width_ext(): return twofg_Width_ext end 
+  def get_twofg_Width_int(): return twofg_Width_int end 
+  def get_twofg_Grip_detected(): return twofg_Grip_detected end 
+  def get_twofg_Force(): return twofg_Force end 
+
+  # User Interface Constants
+  on_device_error_title = "OnRobot - Device error"
+  on_rtde_feed_error_title = "OnRobot - RTDE error"
+  on_rtde_feed_error = "RTDE feed error. OnRobot device count mismatch.<br>Program halted."
+  on_rtde_feed_tool_error = "Tool RTDE feed error. OnRobot device count mismatch.<br>Program halted."
+  
+  # Socket Connection Abstraction
+  on_portopened_javaSocket = False
+  on_dataProcess_running = False
+
+  def on_portclose_javaSocket():
+    socket_close("javaSocket")
+    on_portopened_javaSocket = False
+  end 
+
+  def on_portopen_javaSocket():
+    on_portclose_javaSocket()
+    on_portopened_javaSocket = socket_open("127.0.0.1", 44005, "javaSocket")
+    if not on_portopened_javaSocket:
+      textmsg("OnRobot - Communication error:", "Socket 'javaSocket' opening was unsuccessful.")
+      popup("Establishing connection with the URCap timed out.", title="OnRobot - Communication error", error=True, blocking=False)
+      halt
+    end 
+  end 
+
+  # Real-Time Data Exchange Operations
+  def on_rtde_feed_open(deviceIP, rtdeFeedName, regStart, regSum, regSpeedl):
+    socket_close(rtdeFeedName)
+    if ((regStart[0]+regSum[0]) > 128) or ((regStart[1]+regSum[1]) > 48) or ((regStart[2]+regSum[2]) > 48):
+      popup("Invalid RTDE offset setup detected.", title=on_rtde_feed_error_title, error=True, blocking=False)
+      halt
+    end 
+    if not socket_open(deviceIP, 51234, rtdeFeedName):
+      if not socket_open(deviceIP, 51234, rtdeFeedName):
+        popup("Establishing connection with tools timed out.", title=on_rtde_feed_error_title, error=True, blocking=False)
+        halt
+      end
+    end 
+    socket_send_int(regStart[0], rtdeFeedName)
+    socket_send_int(regSum[0], rtdeFeedName)
+    socket_send_int(regStart[1], rtdeFeedName)
+    socket_send_int(regSum[1], rtdeFeedName)
+    socket_send_int(regStart[2], rtdeFeedName)
+    socket_send_int(regSum[2], rtdeFeedName)
+    socket_send_int(regSpeedl, rtdeFeedName)
+    socket_send_int(on_devices, rtdeFeedName)
+  end 
+
+  def on_dataRead():
+    enter_critical
+    on_RTDE_error = read_input_integer_register(ON_CONN_SHIFT_INT)
+    if (ON_REG_USE_TOOL):
+      on_RTDE_tool_error = read_input_integer_register(ON_TOOL_SHIFT_INT_ARR[0])
+    end
+    exit_critical
+  end 
+
+  def on_set_rtde_watchdog(updateHz=5):
+    local effect = "stop"
+    if (updateHz < 1): effect = "ignore" end 
+    rtde_set_watchdog(str_cat("input_int_register_", ON_CONN_SHIFT_INT), updateHz, effect)
+    if (ON_REG_USE_TOOL):
+      rtde_set_watchdog(str_cat("input_int_register_", ON_TOOL_SHIFT_INT_ARR[0]), updateHz, effect)
+    end 
+  end 
+
+  # Core Tracking Background Threads
+  thread on_dataProcess_thread():
+    local error = False
+    on_dataProcess_running = True
+    while on_dataProcess_running:
+      sync()
+      on_dataRead()
+      error = on_error((on_RTDE_error < 0), on_rtde_feed_error, on_rtde_feed_error_title, error)
+      error = on_error((ON_REG_USE_TOOL and (on_RTDE_tool_error < 0)), on_rtde_feed_tool_error, on_rtde_feed_error_title, error)
+      on_dataProcess_running = not error
+    end 
+    if error: halt end 
+  end 
+
+  thread on_set_watchdog_thread():
+    sleep(2)
+    on_set_rtde_watchdog(updateHz=5)
+    sleep(0.2)
+    on_dataProcess_running = False
+    kill on_dataProcess_thrd
+  end 
+
+  def tc_setup_tool():
+    set_tool_voltage(24)
+    set_tool_communication(True, 1000000, 2, 1, 1.5, 3.5)
+  end 
+
+  def twofg_dataRead_RTDE(tool_index):
+    local rb = ON_TOOL_SHIFT_BOOL_ARR[tool_index]
+    local ri = ON_TOOL_SHIFT_INT_ARR[tool_index]
+    local rf = ON_TOOL_SHIFT_FLOAT_ARR[tool_index]
+    enter_critical
+    twofg_Width_ext_arr[tool_index] = read_input_float_register(rf + 0)
+    twofg_Width_int_arr[tool_index] = read_input_float_register(rf + 1)
+    twofg_device_id_arr[tool_index] = read_input_integer_register(ri + 0)
+    twofg_product_code_arr[tool_index] = read_input_integer_register(ri + 1)
+    twofg_Status_arr[tool_index] = read_input_integer_register(ri + 2)
+    twofg_Force_arr[tool_index] = read_input_integer_register(ri + 3)
+    twofg_Busy_arr[tool_index] = read_input_boolean_register(rb + 0)
+    twofg_Grip_detected_arr[tool_index] = read_input_boolean_register(rb + 1)
+    exit_critical
+  end 
+
+  thread twofg_dataRead_thread():
+    while twofg_dataRead_running:
+      sync()
+      if (twofg_index == ON_DI_DUAL):
+        twofg_dataRead_RTDE(ON_DI_PRIMARY)
+        twofg_dataRead_RTDE(ON_DI_SECONDARY)
+      else:
+        twofg_dataRead_RTDE(twofg_index)
+      end 
+    end 
+  end 
+
+  # Tool Center Point Tracking Assignments
+  on_tcp_adapters = ON_ZEROFRAME
+  on_tcp_qc_primary = ON_ZEROFRAME
+  on_tcp_base_primary = ON_ZEROFRAME
+  on_tcp_gripper_static_primary = ON_ZEROFRAME
+  on_tcp_workpiece_primary = ON_ZEROFRAME
+  on_tcp_dynamic_primary = ON_ZEROFRAME
+
+  def on_tcp_init_adapters():
+    enter_critical
+    on_tcp_adapters = ON_ZEROFRAME
+    local i = 0
+    while (i < length(on_tcp_adapters_array)):
+      on_tcp_adapters = pose_trans(on_tcp_adapters, on_tcp_adapters_array[i])
+      i = i + 1
+    end
+    exit_critical
+  end 
+
+  def on_tcp_update_primary():
+    enter_critical
+    on_tcp_dynamic_primary = pose_trans(on_tcp_static_primary, p[0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    on_tcp_offset_primary = pose_trans(on_tcp_dynamic_primary, on_tcp_workpiece_primary)
+    exit_critical
+  end 
+
+  def on_tcp_init_primary():
+    enter_critical
+    on_tcp_base_primary = pose_trans(on_tcp_adapters, on_tcp_qc_primary)
+    on_tcp_static_primary = pose_trans(on_tcp_base_primary, on_tcp_gripper_static_primary)
+    exit_critical
+    on_tcp_update_primary()
+  end 
+
+  def on_tcp_offset_set(TCP_offset):
+    if (on_follow_tcp): set_tcp(TCP_offset) end 
+    global on_robot_TCP_offset = TCP_offset
+  end 
+
+  def on_tcp_update(isPrimary=True):
+    on_tcp_update_primary()
+    on_tcp_offset_actual = on_tcp_offset_primary
+    global on_tcp_active_is_primary = isPrimary
+    on_tcp_offset_set(on_tcp_offset_actual)
+  end 
+
+  def on_tcp_set_actual_to(isPrimary=True):
+    on_tcp_offset_actual = on_tcp_offset_primary
+    global on_tcp_active_is_primary = isPrimary
+    on_tcp_offset_set(on_tcp_offset_actual)
+  end 
+
+  # Payload Mass Calculation Vectors
+  on_cog_adapters = ON_ZEROFRAME
+  on_cog_qc_primary = ON_ZEROFRAME
+  on_cog_base_primary = ON_ZEROFRAME
+  on_cog_gripper_primary = ON_ZEROFRAME
+  on_cog_workpiece_primary = ON_ZEROFRAME
+  on_mass_adapters = 0.0
+  on_mass_qc_primary = 0.0
+  on_mass_gripper_primary = 0.0
+  on_mass_workpiece_primary = 0.0
+
+  def on_payload_init_adapters():
+    enter_critical
+    on_cog_adapters = ON_ZEROFRAME
+    on_mass_adapters = 0.0
+    local tcp_adapter_offset = ON_ZEROFRAME
+    local i = 0
+    while (i < length(on_mass_adapters_array)):
+      on_mass_adapters = on_mass_adapters + on_mass_adapters_array[i]
+      local ratio = 0
+      if (on_mass_adapters > 0): ratio = on_mass_adapters_array[i] / on_mass_adapters end
+      local absCOG = pose_trans(tcp_adapter_offset, on_tcp_adapters_array[i])
+      absCOG = p[absCOG[0], absCOG[1], absCOG[2], 0.0, 0.0, 0.0]
+      on_cog_adapters = interpolate_pose(on_cog_adapters, absCOG, ratio)
+      on_cog_adapters = p[on_cog_adapters[0], on_cog_adapters[1], on_cog_adapters[2], 0.0, 0.0, 0.0]
+      tcp_adapter_offset = pose_trans(tcp_adapter_offset, on_tcp_adapters_array[i])
+      i = i + 1
+      sync()
+    end
+    exit_critical
+  end 
+
+  def on_payload_update_primary():
+    enter_critical
+    global on_mass_primary = on_mass_L1L2_primary + on_mass_workpiece_primary
+    local ratio = on_mass_workpiece_primary / on_mass_primary
+    local wpAbsCOG = pose_trans(on_tcp_dynamic_primary, on_cog_workpiece_primary)
+    wpAbsCOG = p[wpAbsCOG[0], wpAbsCOG[1], wpAbsCOG[2], 0.0, 0.0, 0.0]
+    global on_cog_primary = interpolate_pose(on_cog_L1L2_primary, wpAbsCOG, ratio)
+    global on_cog_primary = p[on_cog_primary[0], on_cog_primary[1], on_cog_primary[2], 0.0, 0.0, 0.0]
+    exit_critical
+  end 
+
+  def on_payload_init_primary():
+    enter_critical
+    on_mass_base_primary = on_mass_adapters + on_mass_qc_primary
+    global on_mass_L1L2_primary = on_mass_base_primary + on_mass_gripper_primary
+    local qcAbsCOG = pose_trans(on_tcp_adapters, on_cog_qc_primary)
+    qcAbsCOG = p[qcAbsCOG[0], qcAbsCOG[1], qcAbsCOG[2], 0.0, 0.0, 0.0]
+    on_cog_base_primary = interpolate_pose(on_cog_adapters, qcAbsCOG, on_mass_qc_primary / on_mass_base_primary)
+    on_cog_base_primary = p[on_cog_base_primary[0], on_cog_base_primary[1], on_cog_base_primary[2], 0.0, 0.0, 0.0]
+    local gAbsCOG = pose_trans(on_tcp_base_primary, on_cog_gripper_primary)
+    gAbsCOG = p[gAbsCOG[0], gAbsCOG[1], gAbsCOG[2], 0.0, 0.0, 0.0]
+    global on_cog_L1L2_primary = interpolate_pose(on_cog_base_primary, gAbsCOG, on_mass_gripper_primary / on_mass_L1L2_primary)
+    global on_cog_L1L2_primary = p[on_cog_L1L2_primary[0], on_cog_L1L2_primary[1], on_cog_L1L2_primary[2], 0.0, 0.0, 0.0]
+    exit_critical
+    on_payload_update_primary()
+  end 
+
+  def on_payload_set(mass, CoG):
+    local roundedMass = floor(mass * 100 + 0.5) / 100
+    if not on_isMetric: roundedMass = floor(mass / 0.0045359237 + 0.5) * 0.0045359237 end 
+    set_target_payload(roundedMass, [CoG[0], CoG[1], CoG[2]], inertia=[0,0,0,0,0,0], transition_time=on_transition_time)
+    on_transition_time = 0.15
+    global on_mass_actual = roundedMass
+    global on_cog_actual = p[CoG[0], CoG[1], CoG[2], 0.0, 0.0, 0.0]
+  end 
+
+  def on_payload_update_workpiece(workpiece_mass, workpiece_cog=[0.0,0.0,0.0], tool_index=0):
+    if (tool_index != ON_DI_SECONDARY):
+      on_cog_workpiece_primary = p[workpiece_cog[0], workpiece_cog[1], workpiece_cog[2], 0.0, 0.0, 0.0]
+      on_mass_workpiece_primary = workpiece_mass
+    else:
+      global on_cog_workpiece_secondary = p[workpiece_cog[0], workpiece_cog[1], workpiece_cog[2], 0.0, 0.0, 0.0]
+      global on_mass_workpiece_secondary = workpiece_mass
+    end 
+    on_payload_update_primary()
+    on_payload_set(on_mass_primary, [on_cog_primary[0], on_cog_primary[1], on_cog_primary[2]])
+  end 
+
+  def twofg_payload_set(mass, tool_index=0, use_guard=False):
+    local cogTool = [on_cog_workpiece_primary[0], on_cog_workpiece_primary[1], on_cog_workpiece_primary[2]]
+    if (tool_index == ON_DI_SECONDARY):
+      cogTool = [on_cog_workpiece_secondary[0], on_cog_workpiece_secondary[1], on_cog_workpiece_secondary[2]]
+    end 
+    local mass2set = 0.0
+    twofg_Grip_guard_arr[tool_index] = False
+    if (twofg_Grip_detected_arr[tool_index]):
+      mass2set = mass
+      twofg_Grip_guard_arr[tool_index] = use_guard and not on_ioqc
+    end 
+    on_payload_update_workpiece(mass2set, cogTool, tool_index)
+  end 
+
+  # Speedl Shared Motion Logic
+  on_speedl_thread_handler = 0
+  on_speedl_is_enabled = False
+  on_speedl_is_running = False
+  on_speedl_for_ftcontrol = False
+  on_speedl_for_handguide = False
+  on_speedl_for_move = False
+
+  def on_error(status_flag, message, title, stop_var=False):
+    if (status_flag):
+      popup(message, title=title, error=True, blocking=False)
+      stop_var = True
+    end 
+    return stop_var
+  end 
+
+  thread on_speedl_thread():
+    enter_critical
+    on_speedl_is_running = True
+    on_speedl_is_enabled = True
+    exit_critical
+    local last = ON_ZERO6D
+    while on_speedl_is_running:
+      local current = on_speedCB_get()
+      if on_speedl_is_enabled:
+        if (current == ON_ZERO6D): current = [last[0]/100, last[1]/100, last[2]/100, last[3]/100, last[4]/100, last[5]/100] end
+        speedl(current, a=10000.0, t=0.002)
+      else:
+        speedl(ON_ZERO6D, a=3.0, t=0.002)
+      end 
+      last = current
+    end 
+  end 
+
+  def on_speedl_start_for(speedl_id):
+    if (speedl_id == 1): on_speedl_for_ftcontrol = True
+    elif (speedl_id == 2): on_speedl_for_handguide = True
+    elif (speedl_id == 3): on_speedl_for_move = True
+    end 
+    if not (binary_list_to_integer([on_speedl_for_ftcontrol, on_speedl_for_handguide, on_speedl_for_move, False, False, False, False]) == 0) and not on_speedl_is_running:
+      on_speedl_thread_handler = run on_speedl_thread()
+    end 
+    return on_speedl_is_running
+  end 
+
+  twofg_status_error_title = "OnRobot - 2FG Status error"
+  twofg_status_error_missing = "Communication problem with an 2FG gripper. Please check the device.<br>Program halted."
+
+  def twofg_dataProcess_status_errors(twofg_stop=False):
+    enter_critical
+    local idx = twofg_index
+    if(idx == ON_DI_DUAL):
+      twofg_stop = on_error((twofg_device_id_arr[ON_DI_SECONDARY] != ON_DI_SECONDARY) or (twofg_product_code_arr[ON_DI_SECONDARY] == 0), twofg_status_error_missing, twofg_status_error_title, twofg_stop)
+      idx = ON_DI_PRIMARY
+    end 
+    twofg_stop = on_error((twofg_device_id_arr[idx] != idx) or (twofg_product_code_arr[idx] == 0), twofg_status_error_missing, twofg_status_error_title, twofg_stop)
+    exit_critical
+    return twofg_stop
+  end 
+
+  def twofg_dataProcess():
+    enter_critical
+    if twofg_index == ON_DI_DUAL:
+      global twofg_Width_ext_primary = twofg_Width_ext_arr[ON_DI_PRIMARY]
+      global twofg_Width_int_primary = twofg_Width_int_arr[ON_DI_PRIMARY]
+      global twofg_Force_primary = twofg_Force_arr[ON_DI_PRIMARY]
+      global twofg_Busy_primary = twofg_Busy_arr[ON_DI_PRIMARY]
+      global twofg_Grip_detected_primary = twofg_Grip_detected_arr[ON_DI_PRIMARY]
+    else:
+      twofg_Width_ext = twofg_Width_ext_arr[twofg_index]
+      twofg_Width_int = twofg_Width_int_arr[twofg_index]
+      twofg_Force = twofg_Force_arr[twofg_index]
+      twofg_Busy = twofg_Busy_arr[twofg_index]
+      twofg_Grip_detected = twofg_Grip_detected_arr[twofg_index]
+    end 
+    exit_critical
+  end 
+
+  thread twofg_dataProcess_thread():
+    while twofg_dataProcess_running:
+      sync()
+      if twofg_dataProcess_status_errors(False): halt end 
+      twofg_dataProcess()
+    end 
+  end 
+
+  # Environment Setup Values
+  on_follow_tcp = False
+  on_tcp_adapters_array = []
+  on_mass_adapters_array = []
+  on_tcp_qc_primary = p[0.0, 0.0, 0.0136, 0.0, 0.0, 0.0]
+  on_cog_qc_primary = p[0.0, 0.0, 0.004, 0.0, 0.0, 0.0]
+  on_mass_qc_primary = 0.06
+  on_tcp_gripper_static_primary = p[0.0, 0.0, 0.13255, 0.0, 0.0, 0.0]
+  on_cog_gripper_primary = p[0.0, 0.0, 0.061, 0.0, 0.0, 0.0]
+  on_mass_gripper_primary = 1.45
+  on_tcp_workpiece_primary = ON_ZEROFRAME
+  on_cog_workpiece_primary = ON_ZEROFRAME
+  on_mass_workpiece_primary = 0.0
+
+  twofg_grip_title = "OnRobot - 2FG Grip"
+
+  # Core Gripper Commands
+  def twofg_grip(width, force, speed, external_grip=True, stop_if_no_force=False, tool_index=0, blocking=True):
+    twofg_Grip_guard_arr[tool_index] = False
+    local isPrimary = (tool_index != ON_DI_SECONDARY)
+    if(on_follow_tcp): on_tcp_set_actual_to(isPrimary) end 
+    sync()
+    
+    local ret = 0
+    if external_grip:
+      ret = on_tool_xmlrpc.twofg_grip_external(tool_index, width+0.0, force, speed)
+    else:
+      ret = on_tool_xmlrpc.twofg_grip_internal(tool_index, width+0.0, force, speed)
+    end 
+    
+    if(ret != 0):
+      popup("twofg command returned with error.", twofg_grip_title, error=True, blocking=False)
+      halt
+    end 
+    
+    if blocking:
+      local timeout = 0
+      while not twofg_Busy_arr[tool_index]:
+        sleep(0.008)
+        timeout = timeout + 1
+        if timeout > 20: break end 
+      end 
+      while(twofg_Busy_arr[tool_index] == True): sync() end 
+      
+      if stop_if_no_force and not twofg_Grip_detected_arr[tool_index]:
+        popup("twofg Grip command did not apply force.", twofg_grip_title, error=True, blocking=False)
+        halt
+      end
+    end 
+    
+    if(on_follow_tcp): on_tcp_update(isPrimary) end 
+    return ret
+  end 
+
+  def twofg_release(width, speed, external_release=True, tool_index=0, blocking=True):
+    return twofg_grip(width, 80, speed, external_release, False, tool_index, blocking)
+  end 
+
+  thread twofg_monitor_thread():
+    while True:
+      sync()
+      local err = False
+      local idx = twofg_index
+      if(idx == ON_DI_DUAL):
+        if twofg_Grip_guard_arr[ON_DI_SECONDARY] and not twofg_Grip_detected_arr[ON_DI_SECONDARY]: err = True end
+        idx = ON_DI_PRIMARY
+      end 
+      if twofg_Grip_guard_arr[idx] and not twofg_Grip_detected_arr[idx]: err = True end
+      if err:
+        popup("Grip lost detected.", title="OnRobot - 2FG Grip lost", error=True, blocking=False)
+        halt
+      end 
+    end 
+  end 
+
+  # Daemon Connection Launch Sequences
+  on_portopen_javaSocket()
+  on_rtde_feed_open("localhost", "rtdeFeedConn", [64, 24, 24], [4, 5, 2], 0)
+  on_set_rtde_watchdog(updateHz=0.2)
+  
+  on_dataProcess_thrd = run on_dataProcess_thread()
+  on_tcp_init_adapters()
+  on_payload_init_adapters()
+  on_tcp_init_primary()
+  on_payload_init_primary()
+  on_tcp_update_custom()
+  on_tcp_set_actual_to(True)
+
+  on_watchdog_thrd = run on_set_watchdog_thread()
+  if(on_toolConnector): tc_setup_tool() end 
+
+  def twofg_wait_for_init(tool_index):
+    local t = 0
+    while not((twofg_product_code_arr[tool_index] == 192) or (twofg_product_code_arr[tool_index] == 193)):
+      sync()
+      t = t + 1
+      if(t > ON_INIT_TIMEOUT):
+        popup("Waiting for valid OnRobot 2FG ID timed out.", "OnRobot - 2FG error", error=True, blocking=False)
+        halt
+      end 
+    end 
+  end 
+
+  twofg_dataRead_running = True
+  twofg_dataRead_thrd = run twofg_dataRead_thread()
+
+  if(twofg_index == ON_DI_DUAL):
+    twofg_wait_for_init(ON_DI_PRIMARY)
+    twofg_wait_for_init(ON_DI_SECONDARY)
+  else:
+    twofg_wait_for_init(twofg_index)
+  end 
+
+  twofg_dataProcess_running = True
+  twofg_dataProcess_thrd = run twofg_dataProcess_thread()
+  twofg_monitor_thread_handle = run twofg_monitor_thread()
+
+  # Background Steps Tracker
+  global step_count_ac4f214a_2e70_434e_b1a0_88e3a694153a = 0.0
+  thread Step_Counter_Thread():
+    while (True):
+      step_count_ac4f214a_2e70_434e_b1a0_88e3a694153a = step_count_ac4f214a_2e70_434e_b1a0_88e3a694153a + 1.0
+      sync()
+    end
+  end
+  run Step_Counter_Thread()
+
+  # Application Spatial Vectors
+  global grabbedCube = False  
+  global init_pos_p = p[.364, -.5009, .4104, 2.2213, -2.2215, 0.0]
+  global init_pos_q = [-0.6580, -1.4293, -1.9140, -1.3648, 1.5748, -0.6506]
+  global interact_pos1_p = p[.370, -.350, .620, -1.2091, 1.2092, -1.2092]
+  global interact_pos1_q = [-0.7769, -1.2639, -2.3582, 0.4863, 2.3460, 0.0079]
+  global interact_pos2_p = p[.5581, -.1992, .6178, -1.2091, 1.2091, -1.2091]
+  global interact_pos2_q = [-0.0840, -1.2441, -2.3747, 0.4815, 1.6531, 0.0076]
+  global top_pick_p = p[.364, -.5009, .4104, 2.2213, -2.2215, 0.0]
+  global top_pick_q = [-0.6580, -1.4293, -1.9140, -1.3648, 1.5748, -0.6506]
+  global top_place_p = p[.364, -.5009, .4104, 2.2213, -2.2215, 0.0] # Completed expression
+end

@@ -1,0 +1,19 @@
+global init_pos_p=p[0.364, -0.500, 0.410, 2.221, -2.221, -0.000] # left-bottom
+global target_pos_p = pose_add(init_pos_p, p[0.0, 0.1, 0.0, 0.0, 0.0, 0.0])  # right-bottom
+global blend_pos_p = pose_add(init_pos_p, p[0.0, 0.05, 0.1, 0.0, 0.0, 0.0]) # top-middle
+rot_rad = rpy2rotvec([d2r(0), d2r(0), d2r(90)])
+rot_grip_p = pose_trans(init_pos_p, p[0.0,0.0,0.0,rot_rad[0],rot_rad[1],rot_rad[2]])
+
+movel(rot_grip_p,   a=0.5,  v=0.05)             sleep(0.5)      
+movel(init_pos_p,   a=0.5,  v=0.05)
+movel(target_pos_p, a=1.2,  v=0.25)             sleep(0.5) 
+movel(init_pos_p,   a=1.2,  v=0.25)
+movep(blend_pos_p,  a=1.2,  v=0.25, r=0.025)
+movep(target_pos_p, a=1.2,  v=0.25, r=0.0)      sleep(0.5)
+movep(blend_pos_p,  a=1.2,  v=0.25, r=0.025)
+movep(init_pos_p,   a=1.2,  v=0.25, r=0.0)
+movej(target_pos_p, a=1.25, v=0.25)             sleep(0.5)
+movej(init_pos_p,   a=1.25, v=0.25)
+movej(target_pos_p)                             sleep(0.5)
+movej(init_pos_p)
+

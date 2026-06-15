@@ -1,0 +1,82 @@
+# Rondor Pos
+global mid_posBounce_p = p[.717271877797, -.155702535376, .768482829116, -1.209199573417, 1.209199590966, -1.209199547810]
+global mid_posBounce_q = [0.03969980232416761, -1.3942801145245882, -1.9850619617570473, 0.24177172654742574, 1.5304211952191826, 0.00792465535300091]
+
+# UR SIM Pos
+#global mid_posBounce_p = p[0.19, 0.01, 0.58, 2.69, 1.63, 0.0]
+
+# Dynamic generation of the 4 specified waypoints using pose_add
+# Left (-25cm Y), Right (+25cm Y), Bottom (-20cm Z), Top (+20cm Z)
+global WP_Left   = pose_add(mid_posBounce_p, p[0.0, -0.25, 0, 0, 0, 0])
+global WP_Right  = pose_add(mid_posBounce_p, p[0.0, 0.25, 0, 0, 0, 0])
+global WP_Bottom = pose_add(mid_posBounce_p, p[0, 0, -0.20, 0, 0, 0])
+global WP_Top    = pose_add(mid_posBounce_p, p[0, 0, 0.20, 0, 0, 0])
+
+# Store poses in an array for clean indexing loop
+global waypoints = [WP_Left, WP_Bottom, WP_Right, WP_Top]
+
+# Store poses in an array for clean indexing loop
+global waypoints = [WP_Left, WP_Bottom, WP_Right, WP_Top]
+
+# Frequency & Sync Parameters
+global ctrl_frequency = 500.0
+global bpm = 24.0
+global amplitude = 0.12
+global cycle_duration = ctrl_frequency / bpm * 60.0
+global move_time = cycle_duration / 60.0
+
+global pulse = False
+global waypoint_index = 0
+
+thread DanceOffsetThread():
+  local pi = 3.14159265359
+  path_offset_enable()
+  path_offset_set_alpha_filter(0.001)
+  path_offset_set_max_offset(0.75, pi)
+  
+  local i = 0
+  local takt_old = 0
+  local offset = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  
+  while (True):
+    # Calculate oscillatory waves
+    local z_beat = sin((i / cycle_duration) * 2.0 * pi)
+    local z_h_beat = sin((i / (cycle_duration / 2.0)) * 2.0 * pi)
+    local z_takt = sin((i / (cycle_duration / 4.0)) * 2.0 * pi)
+    local z_h_takt = sin((i / (cycle_duration / 8.0)) * 2.0 * pi)
+
+    # Inject wiggle behaviors into offsets
+    offset[2] = z_beat * (amplitude * 2.0)      # Forward / Backward
+    offset[3] = z_takt * (amplitude * 6.0)      # Pitch (Look up/down)
+    offset[4] = z_h_beat * (amplitude * 6.0)    # Yaw (Sway left/right)
+    offset[5] = z_takt * (amplitude * 8.0)      # Roll (Tilt)
+    path_offset_set(offset, 2)
+
+    # Clean tracking pulse logic (triggers every half beat cycle)
+    local takt_counter = floor(i / (cycle_duration / 2.0))
+    if (takt_counter != takt_old):
+      takt_old = takt_counter
+      pulse = True
+    else:
+      pulse = False
+    end
+
+    i = i + 1
+    sync()
+  end
+end
+
+# Fire up the offset generator
+run DanceOffsetThread()
+
+# Main Motion Loop
+while (True):
+  if (pulse):
+    # Step through 0 -> 1 -> 2 -> 3 seamlessly using modulo
+    global waypoint_index = (waypoint_index + 1) % 4
+  end
+
+  # Execute the smooth pose move (movel fits path offsets much cleaner than movej)
+  movej(waypoints[waypoint_index], t=move_time, r=0.0)
+  sync()
+end

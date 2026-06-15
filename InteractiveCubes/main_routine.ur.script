@@ -1,0 +1,41 @@
+# Robot Program: Interactive Cubes
+while (True):
+  # Endless Control-Flow Loop
+  while (True):
+    # record force input at tcp at this moment in time
+    global TCP_Force=get_tcp_force()
+    if (TCP_Force[2] <= -18):
+      # if force applied downwards by operator either grab or place a grabbed cube
+      if (grabbedCube == True):
+        top_place_p=current_pos
+        Place()
+      else:
+        top_pick_p=current_pos
+        Pick()
+      end
+    else:
+      if (TCP_Force[0] >= 18):
+        # if operators applies force from the back of the tcp towards themselves trigger interaction mode to either give or take a cube
+        if (grabbedCube == True):
+          top_pick_p=current_pos
+          GiveCube()
+        else:
+          top_place_p=current_pos
+          TakeCube()
+        end
+      else:
+        # if operator pushes tcp either to the right or left move to the next cube if not already at the end of the cube row
+        if (TCP_Force[1] <= -18) and ((current_pos[1]-cube_dist)>=init_pos_p[1]):
+          current_pos=rot_gripper_reset(pose_sub(current_pos,p[0.0,cube_dist,0.0,0.0,0.0,0.0]))
+          movel(current_pos, a=1.2, v=0.25)
+        else:
+          if (TCP_Force[1] >= 18) and ((current_pos[1]+cube_dist)<=(init_pos_p[1]+(cube_dist*(cube_count-1)))):
+            current_pos=rot_gripper_reset(pose_add(current_pos, p[0.0,cube_dist,0.0,0.0,0.0,0.0]))
+            movel(current_pos, a=1.2, v=0.25)
+          end
+        end
+      end
+    end
+    block_until_still()
+  end
+end

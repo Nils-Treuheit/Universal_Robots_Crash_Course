@@ -1,0 +1,371 @@
+# Handwritten Interactive Cubes Program
+global grabbedCube=False  
+global init_pos_p=p[.364000002273, -.500985651069, .410451243365, 2.221302571162, -2.221550604714, -.000039715444]
+global init_pos_q=[-0.6580644714395518, -1.4293721756783437, -1.9140742516810159, -1.3648597519923449, 1.5748203531136582, -0.6506067434766116]
+global interact_pos1_p=p[.370000000000, -.350000000000, .620000000000, -1.209196644714, 1.209204141954, -1.209204141954]
+global interact_pos1_q=[-0.7769460654270981, -1.2639353991452875, -2.3582413526133177, 0.4863473270681769, 2.3460585458884857, 0.007929402790308232]
+global interact_pos2_p=p[.558160002163, -.199224572559, .617893556873, -1.209199576156, 1.209199576156, -1.209199576156]
+global interact_pos2_q=[-0.08406447782361681, -1.2441301162214486, -2.374792151096123, 0.48159567398278647, 1.6531729275984621, 0.007660369557909134]
+global top_pick_p=p[.364000002273, -.500985651069, .410451243365, 2.221302571162, -2.221550604714, -.000039715444]
+global top_pick_q=[-0.6580644714395518, -1.4293721756783437, -1.9140742516810159, -1.3648597519923449, 1.5748203531136582, -0.6506067434766116]
+global top_place_p=p[.364000002273, -.500985651069, .410451243365, 2.221302571162, -2.221550604714, -.000039715444]
+global top_place_q=[-0.6580644714395518, -1.4293721756783437, -1.9140742516810159, -1.3648597519923449, 1.5748203531136582, -0.6506067434766116]
+# =================== Init/Auto-Gen Functions ========================= 
+def save_cube_position():
+  # 1. Pop up a message instructing the operator. 
+  # This pauses the robot program and waits for them to hit "Continue".
+  # (blocking=True ensures the script waits right here)
+  popup("Please use Freedrive to move the robot TCP to the left-most cube, then press Continue.", title="Setup Mode", warning=False, error=False, blocking=True)
+  
+  # 2. Once they hit continue, instantly grab the current position of the tool (TCP)
+  global init_pos_p = get_actual_tcp_pose()
+  global init_pos_q = get_inverse_kin(init_pos_p, get_actual_joint_positions())
+end
+def calculate_point_to_move_towards(feature, direction, distance):
+  local posDir = [direction[0], direction[1], direction[2]]
+  if norm(posDir) < 1e-6:
+      return get_target_waypoint()
+  end
+  local dir = normalize(posDir) # direction_vector_normalized
+  return pose_add(
+      get_target_waypoint(), 
+      pose_sub(
+          pose_trans(
+              feature, 
+              p[ 
+                  dir[0] * distance,
+                  dir[1] * distance,
+                  dir[2] * distance,
+                  0,0,0
+              ]
+          ),
+          feature
+      )
+  ) # second arg: wanted displacement; 
+  #innerst second arg: displacement_pose
+end
+def calc_cubeTable_gripperRot():
+  local rx_rad = 180.0 * 3.14159265 / 180.0
+  local ry_rad = 0.0 * 3.14159265 / 180.0
+  local rz_rad = -90.0 * 3.14159265 / 180.0
+  return rpy2rotvec([rx_rad, ry_rad, rz_rad])
+end
+global cubeTable_gripperRot = calc_cubeTable_gripperRot()
+def rot_gripper_reset(pose):
+  return p[pose[0], pose[1], pose[2], cubeTable_gripperRot[0], cubeTable_gripperRot[1], cubeTable_gripperRot[2]]
+end
+# ============================================================
+# =================== Helper Functions =========================    
+def pinch_gripper():
+  # -> Pinch Gripper together
+  # begin: URCap Program Node
+  #   Source: OnRobot, 6.3.1, OnRobot A/S
+  #   Type: 2FG Release
+  $ "2FG Release (5)"
+  on_return = twofg_release(width=5.0, speed=40, external_release=True, tool_index=0)
+  twofg_payload_set(mass = 0.0, tool_index = 0, use_guard = False)
+  # end: URCap Program Node
+end
+def grab_gripper():
+  # -> Grab the Cube
+  # begin: URCap Program Node
+  #   Source: OnRobot, 6.3.1, OnRobot A/S
+  #   Type: 2FG Grip
+  $ "2FG Grip (49)"
+  on_return = twofg_grip(width=49.0, force=50, speed=42, external_grip=True, stop_if_no_force=True, tool_index=0)
+  twofg_payload_set(mass = 0.0, tool_index = 0, use_guard = True)
+  # end: URCap Program Node
+  $ "grabbedCube≔True "
+  global grabbedCube=True 
+end
+def release_gripper():
+  # -> Release the Cube
+  # begin: URCap Program Node
+  #   Source: OnRobot, 6.3.1, OnRobot A/S
+  #   Type: 2FG Release
+  $ "2FG Release (54)"
+  on_return = twofg_release(width=54.0, speed=40, external_release=True, tool_index=0 )
+  twofg_payload_set(mass = 0.0, tool_index = 0, use_guard = False) 
+  # end: URCap Program Node
+  $ "grabbedCube≔False "
+  global grabbedCube=False
+end
+def move_to_interact():
+  # -> move to interaction position in a circular motion 
+  movep(init_pos_p, a=1.2, v=0.25, r=0.05)
+  movep(interact_pos1_p, a=1.2, v=0.25, r=0.05)
+  movep(interact_pos2_p, a=1.2, v=0.25, r=0.0)
+end
+def apply_moveJ_zAxis_aligned(pose):
+  local target_p = rot_gripper_reset(pose)
+  local current_q = get_actual_joint_positions()
+  if get_inverse_kin_has_solution(target_p,current_q):
+      local target_q = get_inverse_kin(target_p,current_q)
+      movej(target_q, a=1.4, v=1)
+  else:
+      movej(target_p, a=1.25, v=0.5)
+  end
+end
+def move_towards_ground_until_contact(accel, deaccel_steps, top_speed, bottom_speed, retract_dist):
+  ###
+  # Move until Ground Thread
+  ###
+  global move_thread_flag_4267 = 0
+  thread move_thread_4267():
+    # safe_search_distance 50mm above floor position  
+    local current_pos_z = get_actual_tcp_pose()[2]
+    local safe_search_distance = current_pos_z-0.05
+    # move towards ground in deccelaration steps with smooth blending
+    move_thread_flag_4267 = 1
+    local speed_decrease = (top_speed-bottom_speed)/deaccel_steps
+    local it = 1
+    while it<=deaccel_steps:
+      # move safe distance with blending and account for location uncertainty
+      movel(
+          calculate_point_to_move_towards(
+              p[0,0,0,0,0,0],
+              [0,0,-1],
+              safe_search_distance/deaccel_steps-0.01
+          ),
+          a=accel/it,
+          v=top_speed-(speed_decrease*(it-1)),
+          r=0.01
+      )
+      local it = it + 1
+      sync()
+    end
+    # move last bit to ground_pos extra slow and percise
+    local bottom_pos = get_actual_tcp_pose()
+    local bottom_pos = p[
+      bottom_pos[0],
+      bottom_pos[1],
+      0.001,
+      bottom_pos[3],
+      bottom_pos[4],
+      bottom_pos[5]
+    ]
+    movel(bottom_pos, a=accel/deaccel_steps, v=bottom_speed)
+    move_thread_flag_4267 = 2
+  end
+  ###
+  # Move until Contact Routine
+  ###
+  move_thread_flag_4267 = 0
+  local move_thread_handle_4267 = run move_thread_4267()
+  while True:
+    # move with move to ground thread while not hitting anything
+    local tcp_dir = get_target_tcp_speed()
+    local steps = tool_contact(direction=tcp_dir)
+    if steps > 0:
+        # if tool hits object kill movement and go to retract position
+        kill move_thread_handle_4267
+        stopl(3.0)
+        local contact_q = get_actual_joint_positions_history(steps)
+        local contact_pose = get_forward_kin(contact_q)
+        local retract_pose = contact_pose
+        local pos_dir = [tcp_dir[0], tcp_dir[1], tcp_dir[2]]
+        if norm(pos_dir) > 1e-6:
+            local dir = normalize(pos_dir)
+            retract_pose = pose_trans(
+                contact_pose,
+                p[
+                    -dir[0] * retract_dist,
+                    -dir[1] * retract_dist,
+                    -dir[2] * retract_dist,
+                    0,0,0
+                ]
+            )
+        end
+        movel(retract_pose, a=3.0, v=0.1)
+        return True
+    end
+    if move_thread_flag_4267 > 1:
+        join move_thread_handle_4267
+        return False
+    end
+    sync()
+  end
+end
+def wait_on_tcp_force(force):
+  # make sure robot is not moving
+  while (norm(get_target_joint_speeds())>=0.0001):
+    sync()
+  end
+  # wait for tcp foce to pass threshold
+  while (norm(get_tcp_force())<force):
+    sync()
+  end
+end
+# ============================================================
+def TakeCube():
+  $ 46 "TakeCube" "noBreak"
+  $ 47 "MoveJ"
+  $ 48 "interact_pos1" "breakAfter"
+  $ 49 "MoveP"
+  $ 50 "interact_pos2" "breakAfter"
+  move_to_interact()
+  $ 51 "2FG Release (54)"
+  $ 52 "grabbedCube≔False"
+  release_gripper()
+  $ 53 "Wait norm(get_target_joint_speeds())<0.0001"
+  $ 54 "Wait get_tcp_force()≥18"
+  wait_on_tcp_force(18)
+  $ 55 "2FG Grip (49)"
+  $ 56 "grabbedCube≔True "
+  grab_gripper()
+  $ 57 "MoveJ"
+  $ 58 "top_place" "breakAfter"
+  apply_moveJ_zAxis_aligned(top_place_p)
+end
+def GiveCube():
+  $ 59 "GiveCube" "noBreak"
+  $ 60 "MoveJ"
+  $ 61 "interact_pos1" "breakAfter"
+  $ 62 "MoveP"
+  $ 63 "interact_pos2" "breakAfter"
+  move_to_interact()
+  $ 64 "Wait norm(get_target_joint_speeds())<0.0001"
+  $ 65 "Wait get_tcp_force()≥52"
+  wait_on_tcp_force(52)
+  $ 66 "2FG Release (54)"
+  $ 67 "grabbedCube≔ False "
+  release_gripper()  
+  $ 68 "current_pos≔top_pick"
+  $ 69 "Script: rot_reset.script"
+  $ 70 "current_pos≔target_pose"
+  $ 71 "top_pick=current_pos"
+  $ 73 "MoveJ"
+  $ 74 "top_pick" "breakAfter"
+  apply_moveJ_zAxis_aligned(top_pick_p)
+end
+def Pick():
+  $ 75 "Pick" "noBreak"
+  $ 76 "MoveJ"
+  $ 77 "top_pick" "breakAfter"
+  apply_moveJ_zAxis_aligned(top_pick_p)
+  $ 78 "2FG Release (5)"
+  pinch_gripper()
+  $ 79 "Wait: 0.5"
+  sleep(0.5) 
+  # now user knows he has activated pick
+  # Move towards the ground 
+  # - if stopped by contact to cube => grab it
+  # - if close to ground => stop without grip  
+  $ 80 "MoveL"
+  $ 81 "Direction: Base Z-"
+  $ 83 "Until (tool_contact_detection)"
+  $ 82 "Until (distance)"
+  local foundCube = move_towards_ground_until_contact(0.5,5,0.066,0.011,0.005)
+  $ 84 "2FG Release (54)"
+  release_gripper() 
+  if (foundCube==True):
+    $ 90 "Else" "noBreak"
+    $ 91 "MoveL"
+    $ 92 "Direction: Base Z-"
+    $ 93 "Until (distance)"
+    movel(pose_sub(get_actual_tcp_pose(),p[0.,0.,0.027,0.,0.,0.]),a=0.2,v=0.033)
+    $ 94 "2FG Grip (49)"
+    $ 95 "grabbedCube≔ True "
+    grab_gripper()
+  end
+  $ 96 "MoveL"
+  $ 97 "top_pick" "breakAfter"
+  movel(top_pick_p, a=1.2, v=0.25)
+end
+def Place():
+  $ 98 "Place" "noBreak"
+  $ 99 "MoveJ"
+  $ 100 "top_place" "breakAfter"
+  apply_moveJ_zAxis_aligned(top_place_p)
+  $ 101 "Wait: 0.5"
+  sleep(0.5)
+  $ 102 "MoveL"
+  $ 103 "Direction: Base Z-"
+  $ 104 "Until (tool_contact_detection)"
+  move_towards_ground_until_contact(0.5,5,0.066,0.011,0.001)
+  $ 105 "2FG Release (54)"
+  $ 106 "grabbedCube≔ False "
+  release_gripper()
+  $ 107 "MoveL"
+  $ 108 "top_place" "breakAfter"
+  movel(top_place_p, a=1.2, v=0.25)
+end
+save_cube_position()
+global cube_count = request_integer_from_primary_client("How many cubes are there? (e.g. 5)")
+global cube_dist = request_integer_from_primary_client("How far apart are the cubes in mm? (e.g. 75)")
+global cube_dist = cube_dist / 1000
+$ 2 "BeforeStart"
+$ 3 "MoveJ"
+$ 4 "init_pos" "breakAfter"
+apply_moveJ_zAxis_aligned(init_pos_p)
+$ 5 "current_pos≔init_pos"
+global current_pos=init_pos_p
+$ 13 "top_pick=current_pos"
+top_pick_p=current_pos
+$ 15 "top_place=current_pos"
+top_place_p=current_pos
+while (True):
+  $ 16 "Robot Program"
+  $ 17 "Loop"
+  while (True):
+    $ 18 "TCP_Force≔get_tcp_force()"
+    global TCP_Force=get_tcp_force()
+    $ 19 "If TCP_Force[2]≤-18"
+    if (TCP_Force[2] <= -18):
+      $ 20 "If grabbedCube≟ True "
+      if (grabbedCube == True):
+        $ 21 "top_place=current_pos"
+        top_place_p=current_pos
+        $ 22 "Call Place"
+        Place()
+      else:
+        $ 23 "Else" "noBreak"
+        $ 24 "top_pick=current_pos"
+        top_pick_p=current_pos
+        $ 25 "Call Pick"
+        Pick()
+      end
+    else:
+      $ 26 "ElseIf TCP_Force[0]≥18"
+      if (TCP_Force[0] >= 18):
+        $ 27 "If grabbedCube≟ True "
+        if (grabbedCube == True):
+          $ 28 "top_pick=current_pos"
+          top_pick_p=current_pos
+          $ 29 "Call GiveCube"
+          GiveCube()
+        else:
+          $ 30 "Else" "noBreak"
+          $ 31 "top_place=current_pos"
+          top_place_p=current_pos
+          $ 32 "Call TakeCube"
+          TakeCube()
+        end
+      else:
+        $ 33 "ElseIf TCP_Force[1]≤-18"
+        if (TCP_Force[1] <= -18) and ((current_pos[1]-cube_dist)>=init_pos_p[1]):
+          $ 34 "MoveL"
+          $ 35 "Direction: Base Y-"
+          $ 36 "Until (distance)"
+          $ 37 "current_pos=pose_sub(current_pos, p[0.0,0.075,0.0,0.0,0.0,0.0])"
+          current_pos=rot_gripper_reset(pose_sub(current_pos,p[0.0,cube_dist,0.0,0.0,0.0,0.0]))
+          movel(current_pos, a=1.2, v=0.25)
+        else:
+          $ 38 "ElseIf TCP_Force[1]≥18"
+          if (TCP_Force[1] >= 18) and ((current_pos[1]+cube_dist)<=(init_pos_p[1]+(cube_dist*(cube_count-1)))):
+            $ 39 "MoveL"
+            $ 40 "Direction: Base Y+"
+            $ 41 "Until (distance)"
+            $ 42 "current_pos=pose_add(current_pos, p[0.0,0.075,0.0,0.0,0.0,0.0])"
+            current_pos=rot_gripper_reset(pose_add(current_pos, p[0.0,cube_dist,0.0,0.0,0.0,0.0]))
+            movel(current_pos, a=1.2, v=0.25)
+          end
+        end
+      end
+    end
+    $ 45 "Wait norm(get_target_joint_speeds())<0.0001"
+    while (norm(get_target_joint_speeds())>=0.0001):
+      sync()
+    end
+  end
+end

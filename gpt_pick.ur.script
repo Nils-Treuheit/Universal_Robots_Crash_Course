@@ -1,0 +1,148 @@
+# --------------------------------------------------
+# Search for cube
+# --------------------------------------------------
+def calculate_point_to_move_towards(feature, direction, distance):
+    local posDir = [direction[0], direction[1], direction[2]]
+    if norm(posDir) < 1e-6:
+        return get_target_waypoint()
+    end
+    local dir = normalize(posDir) # direction_vector_normalized
+    return pose_add(
+        get_target_waypoint(), 
+        pose_sub(
+            pose_trans(
+                feature, 
+                p[ 
+                    dir[0] * distance,
+                    dir[1] * distance,
+                    dir[2] * distance,
+                    0,0,0
+                ]
+            ),
+            feature
+        )
+    ) # second arg: wanted displacement; innerst second arg: displacement_pose
+end
+def move_towards_ground_until_contact(accel, deaccel_steps, top_speed, bottom_speed):
+  ###
+  # Move until Ground Thread
+  ###
+  global move_thread_flag = 0
+  thread move_thread():
+    # safe_search_distance 50mm above floor position  
+    local current_pos_z = get_actual_tcp_pose()[2]
+    local safe_search_distance = current_pos_z-0.05
+    # move towards ground in deccelaration steps with smooth blending
+    move_thread_flag = 1
+    local it = 1
+    while it<=deaccel_steps:
+      # move safe distance with blending and account for location uncertainty
+      movel(
+          calculate_point_to_move_towards(
+              p[0,0,0,0,0,0],
+              [0,0,-1],
+              search_distance/deaccel_steps-(0.01*it)
+          ),
+          a=accel/it,
+          v=top_speed-((top_speed-bottom_speed)*(it-1)),
+          r=0.01
+      )
+      local it = it + 1
+      sync()
+    end
+    # move last bit to ground_pos extra slow and percise
+    local bottom_pos = get_actual_tcp_pose()
+    local bottom_pos[2] = 0.0
+    movel(bottom_pos, a=accel/deaccel_steps, v=bottom_speed)
+    move_thread_flag = 2
+  end
+  ###
+  # Move until Contact Routine
+  ###
+  move_thread_flag = 0
+  local move_thread_handle = run move_thread()
+  while True:
+    # move with move to ground thread while not hitting anything
+    local tcp_dir = get_target_tcp_speed()
+    local steps = tool_contact(direction=tcp_dir)
+    if steps > 0:
+        # if tool hits object kill movement and go to retract position
+        kill move_thread_handle
+        stopl(3.0)
+        local contact_q = get_actual_joint_positions_history(steps)
+        local contact_pose = get_forward_kin(contact_q)
+        local retract_pose = contact_pose
+        local pos_dir = [tcp_dir[0], tcp_dir[1], tcp_dir[2]]
+        if norm(pos_dir) > 1e-6:
+            local dir = normalize(pos_dir)
+            retract_pose = pose_trans(
+                contact_pose,
+                p[
+                    -dir[0] * 0.005,
+                    -dir[1] * 0.005,
+                    -dir[2] * 0.005,
+                    0,0,0
+                ]
+            )
+        end
+        movel(retract_pose, a=3.0, v=0.1)
+        return True
+    end
+    if move_thread_flag > 1:
+        join move_thread_handle
+        return False
+    end
+    sync()
+  end
+end
+
+local found_contact = move_towards_ground_until_contact(0.5,5,0.066,0.011)
+
+twofg_release(
+    width=54.0,
+    speed=100,
+    external_release=True,
+    tool_index=0
+)
+twofg_payload_set(
+    mass=0.0,
+    tool_index=0,
+    use_guard=False
+)
+
+while norm(get_target_joint_speeds()) > 0.0001:
+    sync()
+end
+
+if get_actual_tcp_pose()[2] < 0.02:
+
+    global grabbedCube = False
+
+else:
+
+    move_down_until_contact(
+        0.027,
+        1.2,
+        0.25
+    )
+
+    twofg_grip(
+        width=49.0,
+        force=50,
+        speed=42,
+        external_grip=True,
+        stop_if_no_force=True,
+        tool_index=0
+    )
+
+    twofg_payload_set(
+        mass=0.0,
+        tool_index=0,
+        use_guard=True
+    )
+
+    global grabbedCube = True
+
+end
+
+movel(top_pick_p, a=1.2, v=0.25)

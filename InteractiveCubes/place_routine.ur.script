@@ -1,0 +1,13 @@
+# SubProgram: Place Cube 
+def Place():
+  # move to the top of the placement cube stack
+  movej(p[top_place_p[0],top_place_p[1],top_place_p[2],0.,0.,0.])
+  apply_moveJ_zAxis_aligned(top_place_p)
+  # now user knows he has activated pick routine
+  sleep(0.5)
+  # move towards the ground until contact is made and release the cube
+  move_towards_ground_until_contact(0.5,5,0.066,0.011,0.005)
+  release_gripper()
+  # move back up with the released gripper
+  movel(top_place_p, a=1.2, v=0.25)
+end

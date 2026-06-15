@@ -1,0 +1,11 @@
+# SubProgram: Give Cube 
+def GiveCube():
+  # move to the interaction position
+  move_to_interact()
+  # wait for operator to press the gripper together to signal he wants the cube
+  wait_on_tcp_force(52)
+  # rlease the cube
+  release_gripper()  
+  # move to the next picking location
+  apply_moveJ_zAxis_aligned(top_pick_p)
+end

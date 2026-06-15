@@ -1,0 +1,34 @@
+global right_p=p[.354031990007, .583883173389, .514130672059, -.001221359682, 3.116276528481, .038891915638]
+global right_q=[1.2244519381855856, -2.0065810003365634, -0.9744558530248923, -1.6993562685241663, 1.5556987189393503, 2.7942228512187284]
+global left_p=p[-.065168656941, -.370116826566, .514130672015, -.001221359682, 3.116276528474, .038891915649]
+global left_q=[-1.3907350564716374, -1.2494634283278465, -1.7644912660970737, -1.7185153080446973, 1.5999246893354009, 0.1789849180750025]  
+global next_point_p=left_p
+global next_point_q=left_q
+#see where the point are
+movej(get_inverse_kin(right_p, qnear=right_q), a=0.7, v=0.5, r=0.1)
+sleep(3.0)
+movej(get_inverse_kin(left_p, qnear=left_q), a=0.7, v=0.5, r=0.1)
+popup("Starting Program")
+global stopRobot=False
+thread Moving_Thread():
+  while (True):
+    movej(get_inverse_kin(next_point_p, qnear=next_point_q), a=0.7, v=0.5, r=0.1)
+    if (next_point_p == left_p):
+        next_point_p=right_p
+        next_point_q=right_q
+      else:
+        next_point_p=left_p
+        next_point_q=left_q
+      end
+  end
+end
+global MovingThreadHandle = run Moving_Thread()
+while (True):
+  sleep(random()*50)
+  kill MovingThreadHandle
+  global stopRobot=True 
+  stopj(0.5)
+  sleep(3.0)
+  global MovingThreadHandle=run Moving_Thread()
+  global stopRobot=False 
+end
