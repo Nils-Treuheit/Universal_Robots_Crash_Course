@@ -8,7 +8,6 @@ from time import sleep
 
 ROBOT_IP = "172.17.0.2"
 RTDE_PORT = 30004
-SCRIPT_PORT = 30002
 STEP = 0.05
 FREE_STEP = 0.10
 SPEED_TOL = 0.001
@@ -67,7 +66,7 @@ def stop_robot():
 
 # TODO: Multi-Threaded RTDE program 
 #
-# - create a movement planner thread 
+# - create a mother/movement planner thread 
 #   - read current TCP position and joint speed
 #   - read current target and write new target pos to input float register
 #   - write to input integer register (use it as a changed target flag)
@@ -78,6 +77,7 @@ def stop_robot():
 #     - in edge case if offset is defined apply it to the waypoint before sending it as new target position and reset internal offset
 #   - loop movement routines waypoints (original not manipulated target) in the queue but if halted event (press h) is triggered empty queue
 #   - set internal helper falgs (e.g. robot_moving)
+#   - start and stop robot with the two functions (start_background_routine(),stop_robot())
 # - create a keyboard listener thread
 #   - the arrow keys and +/- can be used to manipulate the robots position through the free movement thread (
 #     arrow.left is -Y, arrow.right is +Y, arrow.up is -X and arrow.down is +X, "+" is +Z and "-"" is -Z )
