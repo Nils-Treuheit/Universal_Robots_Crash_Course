@@ -1,0 +1,14 @@
+global running = True
+write_output_integer_register(0,0)
+while (running == True):
+    if read_input_integer_register(0) == 1:
+        write_output_integer_register(0,1)
+        global next_waypoint = p[read_input_float_register(0), read_input_float_register(1), read_input_float_register(2), read_input_float_register(3), read_input_float_register(4), read_input_float_register(5)]
+        sync()
+        if (running == True):
+            movej(next_waypoint, a=0.5, v=0.3)
+        end
+        write_output_integer_register(0,0)
+    end
+    sync()
+end

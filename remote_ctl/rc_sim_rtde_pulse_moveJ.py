@@ -32,48 +32,21 @@ reg = con.send_input_setup(reg_names, ("DOUBLE",) * 6)
 int_reg = con.send_input_setup(("input_int_register_0",), ("INT32",))
 con.send_start()
 
-# ---------------------------------------------------------------------------
-# Background Script Routine
-# Runs indefinitely on the robot controller via port 30002.
-# Polls input_int_register_0; when set to 1 it writes output_int_register_0 = 1
-# (ack), reads the 6-DOF waypoint, executes movej, then resets the output
-# register to 0 so the client knows the move completed.
-# ---------------------------------------------------------------------------
-def start_background_routine(s:socket):
+def send_move_to_RTDE(s:socket):
     """
-    Upload a persistent URScript to the robot's port 30002.
-
-    The script loops, checking ``input_int_register_0``:
-
-    1. **Flag = 1** → sets ``output_int_register_0 = 1`` (ack start),
-       reads the six input double registers as a pose, executes
-       ``movej(next_waypoint, a=0.5, v=0.3)``, then writes
-       ``output_int_register_0 = 0`` (ack done).
-    2. **Flag = 0** → idle, no action.
-
-    The client (``movement_planner``) waits for the 1→0 transition of the
-    output register before clearing the flag and advancing to the next
-    waypoint.
+    Send a movej command to the robot controller via port 30002 that reads
+    the target pose from the input registers (set by RTDE).  The ``r=0.02``
+    blend radius prevents the robot from coming to a full stop at each
+    waypoint, producing smooth continuous motion between consecutive moves.
     """
-    prog = """
-    movej(p[0,0,0,0,0,0], a=1., v=0.5)
-    global running = True
-    write_output_integer_register(0,0)
-    while (running == True):
-        if read_input_integer_register(0) == 1:
-            write_output_integer_register(0,1)
-            global next_waypoint = p[read_input_float_register(0), read_input_float_register(1), read_input_float_register(2), read_input_float_register(3), read_input_float_register(4), read_input_float_register(5)]
-            sync()
-            if (running == True):
-                movej(next_waypoint, a=0.5, v=0.3)
-            end
-            write_output_integer_register(0,0)
-        end
-        sync()
-    end
-    """
-    s.sendall(prog.encode() + b"\n")
-    
+    cmd = (
+        "movej(p[read_input_float_register(0), read_input_float_register(1),"
+        "read_input_float_register(2), read_input_float_register(3),"
+        "read_input_float_register(4), read_input_float_register(5)],"
+        "a=1.0, v=0.5, r=0.02)"
+    )
+    s.sendall(cmd.encode() + b"\n")
+
 
 def stop_robot(s:socket):
     """
@@ -81,11 +54,8 @@ def stop_robot(s:socket):
     and sets the ``running`` flag to False so the background loop
     terminates.
     """
-    prog = """
-    stopj(3.0)
-    global running = False
-    """
-    s.sendall(prog.encode() + b"\n")
+    cmd = "stopj(3.0)"
+    s.sendall(cmd.encode() + b"\n")
 
 # ---------------------------------------------------------------------------
 # Thread-safe shared state
@@ -195,7 +165,7 @@ def movement_planner():
          transition).  After ``movej`` completes, the input flag is
          cleared so the same waypoint is not replayed.
     """
-    global robot_moving, offset, halted, waypoint_index, waypoint_total, current_tcp
+    global robot_moving, offset, halted, waypoint_index, waypoint_total, current_tcp, paused
     tick = 0
     while running:
         # --- read RTDE state ------------------------------------------------
@@ -243,8 +213,10 @@ def movement_planner():
         if not(moving) and not(waypoint_queue.empty()) and \
             ((dist2tgt is None and (waypoint_index==0)) or (dist2tgt<DIST_TOL)):
             wp = list(waypoint_queue.get_nowait())
+            waypoint_queue.put_nowait(wp)
             with state_lock:
                 waypoint_index += 1
+                waypoint_index = waypoint_index % waypoint_total
 
             with offset_lock:
                 if any(abs(v) > 1e-6 for v in offset):
@@ -267,7 +239,7 @@ def movement_planner():
             while running and time() < deadline:
                 with rtde_lock: state = con.receive()
                 if state is None:
-                    sleep(0.01)
+                    sleep(0.001)
                     continue
 
                 robot_ack = state.output_int_register_0
@@ -275,12 +247,16 @@ def movement_planner():
                 if ack_started and robot_ack == 0:
                     with rtde_lock: _clear_flag()
                     break
-                sleep(0.01)
+                sleep(0.001)
             else:
                 # Timed out – clear flag so robot doesn't retry.
                 with rtde_lock: _clear_flag()
 
-            sleep(0.05)
+            sleep(0.001)
+
+        # --- send movej if idle ----------------------------------------------
+        if not moving and not paused and not halted:
+            send_move_to_RTDE(SCRIPT_SOCKET)
 
         # --- real-time status line ------------------------------------------
         with state_lock:
@@ -379,7 +355,7 @@ def movement_scheduler():
             waypoint_index = 0
             movement_routine = 0
             print(f"\nmovement routine {mr} triggered ({waypoint_total} waypoints)")
-        sleep(0.1)
+        sleep(0.05)
 
 # ---------------------------------------------------------------------------
 # Keyboard listener
@@ -417,7 +393,6 @@ def on_press(key):
             with state_lock:
                 if paused:
                     print(f"\nstart event: resume (start move to RTDE pos)")
-                    start_background_routine(SCRIPT_SOCKET)
                     paused = False
                 else:
                     print(f"\nstop event: pause (stop any current movement)")
@@ -451,7 +426,21 @@ def on_press(key):
 # Main
 # ---------------------------------------------------------------------------
 SCRIPT_SOCKET = socket.create_connection((ROBOT_IP, 30002))
-start_background_routine(SCRIPT_SOCKET)
+init = False
+while not(init==True):
+    with rtde_lock:
+        state = con.receive()
+    if state is None:
+        sleep(0.01)
+        continue
+    # > got RTDE state
+    current_tcp = list(state.actual_TCP_pose)
+    if current_tcp is None:
+        sleep(0.01)
+        continue
+    current_tcp = list(state.actual_TCP_pose)
+    write_target(current_tcp)
+    init = True
 
 threads = [
     Thread(target=movement_planner, daemon=True),
